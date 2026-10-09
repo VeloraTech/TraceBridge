@@ -1,94 +1,169 @@
 # TraceBridge
 
-**An evidence bridge between AgentTrace and MartinLoop.**
+**A structured evidence bridge between AgentTrace and MartinLoop.**
 
-TraceBridge connects low-level execution evidence from [AgentTrace](https://github.com/VeloraTech/AgentTrace) with [MartinLoop](https://github.com/keesan12/martin-loop), turning observed agent activity into structured evidence that can be consumed during task verification.
+TraceBridge connects observations about AI coding-agent activity to the governed execution record maintained by MartinLoop. It validates, correlates, and packages evidence so that execution activity can be inspected alongside a run's objective, constraints, and verification results.
+
+The goal is straightforward: **make execution evidence useful without overstating what it proves.**
+
+> **Status:** Early development. The data contract and integration boundaries are being defined. Proposed capabilities are not necessarily implemented.
 
 ## Why TraceBridge?
 
-AI coding agents can produce a result without providing enough evidence to understand what actually happened during a run.
+Knowing that a coding agent completed a task is different from knowing what happened while it worked.
 
-AgentTrace observes and records the activity surrounding an agent run — including processes, workspace activity, and system-level observations.
+Execution observations may come from different sources, use different identifiers, have incomplete coverage, or disagree about which run they belong to. Passing these records directly between systems risks losing provenance or treating an inference as an established fact.
 
-MartinLoop governs the run and determines whether the task can be considered complete based on its verification and evidence requirements.
+TraceBridge addresses this integration problem by providing a defined boundary between observation and governance.
 
-TraceBridge sits between them.
+It is designed to preserve:
+
+- **Identity** — which run, repository, agent, session, and process the evidence relates to.
+- **Execution history** — observed process activity, commands, filesystem operations, timestamps, and outcomes where available.
+- **Provenance** — where each record originated and how it was transformed.
+- **Integrity** — what checks were performed and what those checks established.
+- **Coverage** — known observation gaps, event loss, unsupported capabilities, and uncertainty.
+- **Artifacts** — relevant files, outputs, and hashes when available.
+- **Run context** — the association between execution evidence and MartinLoop's independently maintained run contract.
+
+## How it fits together
 
 ```text
-NativeRelay
-    │
-    │ OS-level observations
-    ▼
-AgentTrace
-    │
-    │ Agent/session evidence
-    ▼
-TraceBridge
-    │
-    │ Structured verification evidence
-    ▼
-MartinLoop
+Operating System
+       |
+       v
+   NativeRelay
+ Native observations
+       |
+       v
+   AgentTrace
+ Correlation and event history
+       |
+       v
+   TraceBridge
+ Validate · Correlate · Normalize
+ Preserve provenance · Package evidence
+       |
+       v
+   MartinLoop
+ Governed execution · Verification
+ Final run status and receipt
 ```
 
-## What TraceBridge Does
+Each component has a distinct responsibility.
 
-TraceBridge is responsible for:
+| Component | Responsibility |
+|---|---|
+| **NativeRelay** | Supplies native operating-system observations through its supported collectors. |
+| **AgentTrace** | Records and correlates agent execution activity and provides the available event history and integrity information. |
+| **TraceBridge** | Validates incoming records, associates evidence with the appropriate run, normalizes the data, and exposes provenance, integrity, and coverage limitations. |
+| **MartinLoop** | Owns the governed run, including its objective, scope, budget, verification requirements, and final status. |
 
-* receiving evidence produced by AgentTrace
-* validating and normalizing that evidence
-* preserving the distinction between observed, inferred, and unknown information
-* connecting evidence to the relevant run and repository
-* producing a structured evidence package for MartinLoop
+TraceBridge does not replace any of these components. It connects their responsibilities through a defined evidence contract.
 
-TraceBridge does **not** perform OS-level monitoring itself, and it does not replace AgentTrace or MartinLoop.
+## What TraceBridge is responsible for
 
-### Responsibility boundaries
+### 1. Validate incoming evidence
 
-| Component       | Responsibility                                                                   |
-| --------------- | -------------------------------------------------------------------------------- |
-| **NativeRelay** | Collects native OS-level observations                                            |
-| **AgentTrace**  | Records and correlates agent, process, and workspace activity                    |
-| **TraceBridge** | Transforms AgentTrace observations into verification-ready evidence              |
-| **MartinLoop**  | Governs the run and evaluates whether the available evidence supports completion |
+Check the structure and required fields of incoming records, preserve original identifiers, and identify malformed or conflicting information.
 
-## Evidence First
+### 2. Associate evidence with the correct run
 
-TraceBridge is designed around a simple principle:
+Correlate AgentTrace observations with MartinLoop's run and repository context. Ambiguous or conflicting associations must be surfaced rather than silently resolved.
 
-> **Evidence should describe what was actually observed, not what we assume happened.**
+### 3. Normalize without losing meaning
 
-If an observation cannot be established with confidence, TraceBridge should preserve that uncertainty rather than turning it into a definitive claim.
+Present records in a consistent structure while preserving their original source, event type, attribution, timestamps, and relevant metadata.
 
-This allows downstream systems to distinguish between:
+### 4. Preserve integrity and coverage information
 
-* observed evidence
-* inferred relationships
-* unavailable evidence
-* incomplete or lost observations
+Expose the integrity checks that actually ran, their results, and any known gaps or event loss. A successful integrity check must not be presented as proof of complete observation.
 
-## Status
+### 5. Produce a structured evidence package
 
-**Early development.**
+Provide MartinLoop with organized execution evidence, artifact information, provenance, coverage limitations, and references to the associated run context.
 
-The initial work is focused on defining the contracts between AgentTrace, TraceBridge, and MartinLoop before implementation begins.
+### 6. Keep evidence separate from evaluation
 
-## Roadmap
+TraceBridge supplies evidence. MartinLoop remains responsible for evaluating the governed run and recording its final status.
 
-* [ ] Define AgentTrace evidence contract
-* [ ] Define MartinLoop integration contract
-* [ ] Define TraceBridge evidence model
-* [ ] Define evidence integrity requirements
-* [ ] Implement evidence validation
-* [ ] Implement AgentTrace → TraceBridge pipeline
-* [ ] Implement TraceBridge → MartinLoop integration
-* [ ] Add integration and conformance tests
+## Evidence is not the same as a conclusion
 
-## Related Projects
+TraceBridge must preserve the difference between what was observed, what was inferred, and what remains unknown.
 
-* **[AgentTrace](https://github.com/VeloraTech/AgentTrace)** — observes and records AI-agent activity.
-* **[NativeRelay](https://github.com/VeloraTech/NativeRelay)** — provides native OS-level observations to AgentTrace.
-* **[MartinLoop](https://github.com/keesan12/martin-loop)** — governs AI coding-agent runs and verifies their outcomes.
+For example:
 
-## License
+| Evidence | What it establishes |
+|---|---|
+| A process was observed starting. | The source recorded a process-start event. |
+| A command returned exit code `0`. | The recorded process returned that exit code. |
+| A file hash matches a recorded digest. | The compared bytes match under the stated hash algorithm. |
+| An event chain passes integrity verification. | The checked chain passed the implemented verification procedure. |
+| Some events were lost or could not be collected. | The evidence has a known limitation that must remain visible. |
 
-MIT
+None of these facts independently proves that the overall task was completed correctly.
+
+Similarly, the absence of an event does not prove that the corresponding activity never occurred.
+
+## Integrity and coverage
+
+TraceBridge is designed to expose integrity and coverage as separate dimensions.
+
+Integrity concerns whether the available records pass the checks performed on them. Coverage concerns which activity could be observed and what may be missing.
+
+A report may therefore indicate that an event chain passed verification while filesystem coverage remains incomplete or unavailable.
+
+TraceBridge must not report `TRACE INTACT` unless the underlying checks support that claim within a clearly defined scope. It must never turn an unavailable check, unknown loss count, or incomplete observation into a successful verification result.
+
+## Data contract
+
+`DATA-CONTRACT.md` is the canonical reference for the proposed exchange format.
+
+It defines:
+
+- Run and repository identity.
+- Agent and session identity.
+- Observation events and ordering.
+- Process and command execution records.
+- Filesystem activity and artifacts.
+- Hashes, integrity checks, coverage, and event loss.
+- Provenance and attribution.
+- MartinLoop run context and evaluation results.
+- The normalized evidence package and validation rules.
+
+The contract also distinguishes proposed fields from implemented capabilities. Actual compatibility must be verified against the interfaces exposed by AgentTrace and MartinLoop.
+
+## Design principles
+
+- **Preserve provenance.** Evidence should remain traceable to its source.
+- **Do not manufacture certainty.** Unknown and inferred information must remain distinguishable from direct observations.
+- **Expose limitations.** Missing events and unsupported capabilities must not disappear during normalization.
+- **Keep ownership clear.** TraceBridge does not take over AgentTrace's event history or MartinLoop's run decisions.
+- **Prefer explicit contracts.** Data structures, status values, and compatibility expectations should be defined rather than assumed.
+- **Keep the integration focused.** TraceBridge should connect existing systems instead of becoming another execution-control or monitoring platform.
+
+## Project documentation
+
+This repository maintains three core documents:
+
+- **`README.md`** — project purpose, component roles, and high-level workflow.
+- **`ARCHITECTURE.md`** — system boundaries, responsibilities, and data flow.
+- **`DATA-CONTRACT.md`** — data structures, field definitions, validation rules, and evidence semantics.
+
+## Current status
+
+TraceBridge is in its contract and integration-design stage.
+
+The immediate priorities are:
+
+1. Finalize the data contract against the actual AgentTrace and MartinLoop interfaces.
+2. Define the input validation and run-correlation behavior.
+3. Implement evidence normalization while preserving provenance and uncertainty.
+4. Establish integrity and coverage reporting based on real available checks.
+5. Validate the resulting evidence package against representative integration scenarios.
+
+Features described as design goals should not be assumed to exist until they are implemented and tested.
+
+## Core principle
+
+**TraceBridge connects the evidence to the run. It does not turn evidence into more certainty than it supports.**
